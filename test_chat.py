@@ -6,6 +6,7 @@ and exports all responses to a markdown file.
 """
 
 from call_llm import OpenRouterClient, ConversationHistory
+from model_evaluator import ModelEvaluator, EvalResult
 from datetime import datetime
 
 # Initialize markdown output
@@ -40,11 +41,12 @@ def ask_question(client, question, history=None, model_name=None):
     
     return full_response
 
-def compare_models(client, question, models, question_title):
+def compare_models(client, evaluator, question, models, question_title):
     """Ask the same question to multiple models and compare responses.
     
     Args:
         client: OpenRouterClient instance
+        evaluator: ModelEvaluator instance for scoring
         question: The question to ask all models
         models: List of model names to test
         question_title: Title for this comparison test
@@ -61,57 +63,27 @@ def compare_models(client, question, models, question_title):
     responses = []
     
     for model in models:
-        client.switch_model(model)
-        model_short = model.split('/')[-1]  # Get short name
-        
-        write_to_md(f"### Model: `{model}`\n\n")
-        write_to_md("**Response:**\n\n")
-        
-        response = ask_question(client, question, model_name=model_short)
-        responses.append((model, response))
-        
-        write_to_md(f"{response}\n\n")
+        try:
+            client.switch_model(model)
+            model_short = model.split('/')[-1]  # Get short name
+            
+            write_to_md(f"### Model: `{model}`\n\n")
+            write_to_md("**Response:**\n\n")
+            
+            response = ask_question(client, question, model_name=model_short)
+            responses.append((model, response))
+            
+            write_to_md(f"{response}\n\n")
+            
+        except Exception as e:
+            print(f"❌ Error with {model}: {e}")
+            write_to_md(f"### Model: `{model}`\n\n")
+            write_to_md(f"**Error:** {str(e)}\n\n")
+            # Continue with other models
+            continue
     
     return responses
 
-def rate_response(response, criteria):
-    """Simple heuristic rating based on response characteristics.
-    
-    Args:
-        response: The response text to rate
-        criteria: What to evaluate (length, structure, etc.)
-        
-    Returns:
-        Score out of 10
-    """
-    score = 5.0  # Base score
-    
-    # Length check (not too short, not too verbose)
-    word_count = len(response.split())
-    if 50 <= word_count <= 300:
-        score += 1.5
-    elif word_count < 20:
-        score -= 2
-    elif word_count > 500:
-        score -= 1
-    
-    # Structure check (has paragraphs or bullet points)
-    if '\n\n' in response or '\n-' in response or '\n*' in response:
-        score += 1.0
-    
-    # Example/explanation check
-    if any(word in response.lower() for word in ['example', 'for instance', 'such as', '例如', '比如']):
-        score += 1.0
-    
-    # Code check (if applicable)
-    if '```' in response or 'def ' in response or 'function' in response:
-        score += 0.5
-    
-    # Depth indicators
-    if any(word in response.lower() for word in ['because', 'therefore', 'however', 'specifically', '因为', '所以', '然而']):
-        score += 1.0
-    
-    return min(10.0, max(1.0, score))  # Clamp between 1-10
 
 def main():
     # Initialize markdown file
@@ -120,19 +92,27 @@ def main():
     write_to_md("---\n\n")
     
     try:
-        # Models to compare
+        # Models to compare (skipped gpt-oss-20b:free due to streaming issues)
         test_models = [
             "meta-llama/llama-4-maverick:free",
             "deepseek/deepseek-r1-distill-llama-70b:free",
-            "qwen/qwen-2.5-72b-instruct:free",
-            "openai/gpt-oss-20b:free"
+            "qwen/qwen-2.5-72b-instruct:free"
         ]
         
-        # Initialize client
+        # Initialize client for testing models
         client = OpenRouterClient(
             model=test_models[0],
             available_models=test_models
         )
+        
+        # Initialize judge client for evaluation (use a strong model for judging)
+        judge_client = OpenRouterClient(
+            model="qwen/qwen-2.5-72b-instruct:free",
+            available_models=["qwen/qwen-2.5-72b-instruct:free"]
+        )
+        
+        # Initialize model evaluator
+        evaluator = ModelEvaluator(judge_client)
         
         write_to_md("# Model Comparison Test\n\n")
         write_to_md(f"**Testing {len(test_models)} models with challenging questions**\n\n")
@@ -143,79 +123,135 @@ def main():
         
         # Test 1: AI Startup Strategy
         question1 = "You want to start an AI startup in 2025 with limited funding. What problem should you focus on, and what's your go-to-market strategy? Be specific about your target customer and competitive advantage."
-        responses1 = compare_models(client, question1, test_models, "Test 1: AI Startup Strategy")
+        responses1 = compare_models(client, evaluator, question1, test_models, "Test 1: AI Startup Strategy")
         
-        write_to_md("**Ratings:**\n\n")
+        # Evaluate responses with rubric scoring
+        write_to_md("**Rubric Evaluation:**\n\n")
+        eval_results1 = []
         for model, response in responses1:
-            score = rate_response(response, "business")
-            write_to_md(f"- `{model}`: **{score:.1f}/10**\n")
-        write_to_md("\n---\n\n")
+            eval_result = evaluator.evaluate_response(model, question1, response)
+            eval_results1.append(eval_result)
+            
+            model_short = model.split('/')[-1]
+            write_to_md(f"**{model_short}:**\n")
+            write_to_md(f"- Overall Score: **{eval_result.overall_score:.2f}/5.0**\n")
+            write_to_md(f"- Correctness: {eval_result.rubric.correctness}/5\n")
+            write_to_md(f"- Completeness: {eval_result.rubric.completeness}/5\n")
+            write_to_md(f"- Reasoning: {eval_result.rubric.reasoning}/5\n")
+            write_to_md(f"- Clarity: {eval_result.rubric.clarity}/5\n")
+            write_to_md(f"- Verifiability: {eval_result.rubric.verifiability}/5\n")
+            write_to_md(f"- Safety Pass: {eval_result.rubric.safety_pass}\n")
+            write_to_md(f"- Judge Rationale: {eval_result.rubric.rationale}\n\n")
+        write_to_md("---\n\n")
         
         # Test 2: Algorithmic Trading (Chinese)
         question2 = "解釋如何使用Python和機器學習來建立一個簡單的股票交易策略。需要考慮哪些關鍵因素和風險？請給出具體步驟。"
-        responses2 = compare_models(client, question2, test_models, "Test 2: Algorithmic Trading Strategy")
+        responses2 = compare_models(client, evaluator, question2, test_models, "Test 2: Algorithmic Trading Strategy")
         
-        write_to_md("**Ratings:**\n\n")
+        # Evaluate responses with rubric scoring
+        write_to_md("**Rubric Evaluation:**\n\n")
+        eval_results2 = []
         for model, response in responses2:
-            score = rate_response(response, "technical")
-            write_to_md(f"- `{model}`: **{score:.1f}/10**\n")
-        write_to_md("\n---\n\n")
+            eval_result = evaluator.evaluate_response(model, question2, response)
+            eval_results2.append(eval_result)
+            
+            model_short = model.split('/')[-1]
+            write_to_md(f"**{model_short}:**\n")
+            write_to_md(f"- Overall Score: **{eval_result.overall_score:.2f}/5.0**\n")
+            write_to_md(f"- Correctness: {eval_result.rubric.correctness}/5\n")
+            write_to_md(f"- Completeness: {eval_result.rubric.completeness}/5\n")
+            write_to_md(f"- Reasoning: {eval_result.rubric.reasoning}/5\n")
+            write_to_md(f"- Clarity: {eval_result.rubric.clarity}/5\n")
+            write_to_md(f"- Verifiability: {eval_result.rubric.verifiability}/5\n")
+            write_to_md(f"- Safety Pass: {eval_result.rubric.safety_pass}\n")
+            write_to_md(f"- Judge Rationale: {eval_result.rubric.rationale}\n\n")
+        write_to_md("---\n\n")
         
         # Test 3: AI Era Education (Chinese)
         question3 = "在AI時代，傳統教育需要如何改革？學生應該培養哪些技能才不會被AI取代？請提出3-5個具體建議。"
-        responses3 = compare_models(client, question3, test_models, "Test 3: AI Era Education Reform")
+        responses3 = compare_models(client, evaluator, question3, test_models, "Test 3: AI Era Education Reform")
         
-        write_to_md("**Ratings:**\n\n")
+        # Evaluate responses with rubric scoring
+        write_to_md("**Rubric Evaluation:**\n\n")
+        eval_results3 = []
         for model, response in responses3:
-            score = rate_response(response, "education")
-            write_to_md(f"- `{model}`: **{score:.1f}/10**\n")
-        write_to_md("\n---\n\n")
+            eval_result = evaluator.evaluate_response(model, question3, response)
+            eval_results3.append(eval_result)
+            
+            model_short = model.split('/')[-1]
+            write_to_md(f"**{model_short}:**\n")
+            write_to_md(f"- Overall Score: **{eval_result.overall_score:.2f}/5.0**\n")
+            write_to_md(f"- Correctness: {eval_result.rubric.correctness}/5\n")
+            write_to_md(f"- Completeness: {eval_result.rubric.completeness}/5\n")
+            write_to_md(f"- Reasoning: {eval_result.rubric.reasoning}/5\n")
+            write_to_md(f"- Clarity: {eval_result.rubric.clarity}/5\n")
+            write_to_md(f"- Verifiability: {eval_result.rubric.verifiability}/5\n")
+            write_to_md(f"- Safety Pass: {eval_result.rubric.safety_pass}\n")
+            write_to_md(f"- Judge Rationale: {eval_result.rubric.rationale}\n\n")
+        write_to_md("---\n\n")
         
         # Test 4: LLM API Selection
         question4 = "What are the 3 most important factors when choosing an LLM API (like OpenAI, Anthropic, or OpenRouter) for a production application? Explain briefly."
-        responses4 = compare_models(client, question4, test_models, "Test 4: LLM API Selection")
+        responses4 = compare_models(client, evaluator, question4, test_models, "Test 4: LLM API Selection")
         
-        write_to_md("**Ratings:**\n\n")
+        # Evaluate responses with rubric scoring
+        write_to_md("**Rubric Evaluation:**\n\n")
+        eval_results4 = []
         for model, response in responses4:
-            score = rate_response(response, "logic")
-            write_to_md(f"- `{model}`: **{score:.1f}/10**\n")
-        write_to_md("\n---\n\n")
+            eval_result = evaluator.evaluate_response(model, question4, response)
+            eval_results4.append(eval_result)
+            
+            model_short = model.split('/')[-1]
+            write_to_md(f"**{model_short}:**\n")
+            write_to_md(f"- Overall Score: **{eval_result.overall_score:.2f}/5.0**\n")
+            write_to_md(f"- Correctness: {eval_result.rubric.correctness}/5\n")
+            write_to_md(f"- Completeness: {eval_result.rubric.completeness}/5\n")
+            write_to_md(f"- Reasoning: {eval_result.rubric.reasoning}/5\n")
+            write_to_md(f"- Clarity: {eval_result.rubric.clarity}/5\n")
+            write_to_md(f"- Verifiability: {eval_result.rubric.verifiability}/5\n")
+            write_to_md(f"- Safety Pass: {eval_result.rubric.safety_pass}\n")
+            write_to_md(f"- Judge Rationale: {eval_result.rubric.rationale}\n\n")
+        write_to_md("---\n\n")
         
-        # Calculate overall scores
+        # Calculate overall scores using rubric evaluation
         print("\n" + "="*60)
         print("=== OVERALL COMPARISON ===")
         print("="*60)
         
-        write_to_md("## Overall Model Comparison\n\n")
+        write_to_md("## Overall Model Comparison (Rubric-based)\n\n")
         write_to_md("| Model | Test 1 | Test 2 | Test 3 | Test 4 | Average |\n")
         write_to_md("|-------|--------|--------|--------|--------|----------|\n")
         
-        all_responses = [responses1, responses2, responses3, responses4]
+        all_eval_results = [eval_results1, eval_results2, eval_results3, eval_results4]
         
         for i, model in enumerate(test_models):
             scores = []
-            for responses in all_responses:
-                response = responses[i][1]
-                score = rate_response(response, "general")
-                scores.append(score)
+            for eval_results in all_eval_results:
+                if i < len(eval_results):
+                    score = eval_results[i].overall_score
+                    scores.append(score)
+                else:
+                    scores.append(0.0)  # Fallback if missing results
             
             avg_score = sum(scores) / len(scores)
             model_short = model.split('/')[-1]
             
             print(f"\n{model_short}:")
-            print(f"  Test 1 (AI Startup): {scores[0]:.1f}/10")
-            print(f"  Test 2 (Trading): {scores[1]:.1f}/10")
-            print(f"  Test 3 (Education): {scores[2]:.1f}/10")
-            print(f"  Test 4 (API Choice): {scores[3]:.1f}/10")
-            print(f"  Average: {avg_score:.1f}/10")
+            print(f"  Test 1 (AI Startup): {scores[0]:.2f}/5.0")
+            print(f"  Test 2 (Trading): {scores[1]:.2f}/5.0")
+            print(f"  Test 3 (Education): {scores[2]:.2f}/5.0")
+            print(f"  Test 4 (API Choice): {scores[3]:.2f}/5.0")
+            print(f"  Average: {avg_score:.2f}/5.0")
             
-            write_to_md(f"| `{model_short}` | {scores[0]:.1f} | {scores[1]:.1f} | {scores[2]:.1f} | {scores[3]:.1f} | **{avg_score:.1f}** |\n")
+            write_to_md(f"| `{model_short}` | {scores[0]:.2f} | {scores[1]:.2f} | {scores[2]:.2f} | {scores[3]:.2f} | **{avg_score:.2f}** |\n")
         
         write_to_md("\n---\n\n")
-        write_to_md("## Notes\n\n")
-        write_to_md("- Ratings are based on heuristic analysis (response length, structure, depth, examples, etc.)\n")
-        write_to_md("- These scores are approximate and meant for quick comparison\n")
-        write_to_md("- Human evaluation is recommended for final assessment\n\n")
+        write_to_md("## Evaluation Notes\n\n")
+        write_to_md("- **Scoring System:** Rubric-based evaluation using LLM-as-judge\n")
+        write_to_md("- **Criteria:** Correctness(4), Completeness(3), Reasoning(2), Clarity(1), Verifiability(1)\n")
+        write_to_md("- **Safety Gate:** Models must pass safety check or receive -1.0 score\n")
+        write_to_md("- **Judge Model:** qwen-2.5-72b-instruct (temperature=0.1 for consistency)\n")
+        write_to_md("- **Scale:** 0-5 for individual criteria, weighted average for overall score\n\n")
         
         print("\n" + "="*60)
         print(f"✅ Test complete! Results saved to: {output_file}")

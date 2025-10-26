@@ -1,146 +1,9 @@
-# OpenRouter LLM Module - Project Briefing
+# OpenRouter LLM Module
 
-## Project Overview
-A production-ready, object-oriented Python module for interacting with OpenRouter.ai API. The system provides a clean, easy-to-use interface for calling various LLM models (including free models like Llama, Qwen) with support for chat completion, streaming responses, conversation history management, and robust error handling.
+A production-ready Python module for OpenRouter.ai API with support for free models, streaming, conversation history, and robust error handling.
 
-## Core Functions
+## Quick Start
 
-### 1. OpenRouterClient Class
-- **Purpose**: Main interface for API communication
-- **Key Features**:
-  - Initialize with any OpenRouter model (free or paid)
-  - Automatic API key management from environment variables
-  - Configurable retry logic with exponential backoff
-  - Support for both standard and streaming responses
-  - **Dynamic model switching** with validation
-  - **Model management** with available models list
-
-### 2. Model Management Methods
-- **`switch_model()`**: Dynamically change to a different model
-- **`get_current_model()`**: Get the currently active model name
-- **`list_available_models()`**: Show configured available models
-- **`add_available_model()`**: Add a model to the available list
-- **`remove_available_model()`**: Remove a model from the available list
-
-### 3. Chat Methods
-- **`chat()`**: Standard completion that returns the full response
-- **`chat_stream()`**: Streaming completion that yields chunks in real-time
-- **Both methods support**:
-  - Conversation history integration
-  - System prompts
-  - Custom parameters (temperature, max_tokens, etc.)
-
-### 3. ConversationHistory Class
-- **Purpose**: Manages multi-turn conversations
-- **Key Features**:
-  - Track user and assistant messages
-  - Save/load conversations to/from JSON files
-  - Clear conversation history
-  - Seamless integration with chat methods
-
-### 4. Error Handling System
-- **Custom Exceptions**:
-  - `OpenRouterError`: Base exception class
-  - `RateLimitError`: For rate limit issues
-  - `APIError`: For general API errors
-- **Retry Logic**: Automatic retries with exponential backoff
-- **Graceful Degradation**: Detailed error messages for debugging
-
-## Workflow Logic
-
-### 1. Initialization
-```
-1. Load API key from environment variable (OPENROUTER_API_KEY)
-2. Initialize OpenRouterClient with model name
-3. Configure retry settings (optional)
-```
-
-### 2. Standard Chat Flow
-```
-1. User calls client.chat(message)
-2. System builds message array (system + history + user message)
-3. Send request to OpenRouter API with retry logic
-4. Parse response and return assistant message
-5. Update conversation history (if provided)
-```
-
-### 3. Streaming Chat Flow
-```
-1. User calls client.chat_stream(message)
-2. System builds message array (same as standard)
-3. Send streaming request to OpenRouter API
-4. Yield response chunks as they arrive
-5. Collect full response for history update
-6. Update conversation history (if provided)
-```
-
-### 4. Conversation Management
-```
-1. Create ConversationHistory object
-2. Pass history to chat methods
-3. System automatically adds user/assistant messages
-4. Optional: Save/load conversations to files
-```
-
-## Module Structure
-
-### File Organization
-```
-call_llm/
-├── call_llm.py          # Main module with all classes
-├── requirements.txt     # Python dependencies
-├── env.example         # Environment variable template
-└── README_project_briefing.md  # This documentation
-```
-
-### Class Hierarchy
-```
-OpenRouterError (Base Exception)
-├── RateLimitError
-└── APIError
-
-ConversationHistory
-├── add_message()
-├── get_messages()
-├── clear()
-├── save()
-└── load()
-
-OpenRouterClient
-├── __init__()
-├── chat()
-├── chat_stream()
-├── _get_headers()
-├── _handle_error()
-└── _make_request()
-```
-
-## Current Status
-
-### ✅ What's Working
-- Complete OpenRouterClient implementation
-- Standard chat completion with error handling
-- Streaming chat with real-time responses
-- Conversation history management
-- Robust retry logic with exponential backoff
-- Custom exception classes
-- Environment variable configuration
-- Support for all OpenRouter models (free and paid)
-
-### 🔧 Configuration Required
-- User needs to set OPENROUTER_API_KEY environment variable
-- Copy env.example to .env and add actual API key
-- Install dependencies: `pip install -r requirements.txt`
-
-### 🎯 Ready for Use
-- Module is production-ready
-- Includes comprehensive error handling
-- Supports all requested features
-- Well-documented with examples
-
-## Usage Examples
-
-### Basic Setup
 ```python
 from call_llm import OpenRouterClient
 
@@ -150,64 +13,155 @@ client = OpenRouterClient(model="meta-llama/llama-4-maverick:free")
 # Simple chat
 response = client.chat("Hello, how are you?")
 print(response)
-```
 
-### Streaming Response
-```python
-# Real-time streaming
+# Streaming response
 for chunk in client.chat_stream("Tell me a story"):
     print(chunk, end="", flush=True)
 ```
 
-### Model Management
+## Core Features
+
+| Feature | Description |
+|---------|-------------|
+| **Model Management** | Switch between models dynamically with validation |
+| **Streaming** | Real-time response streaming for better UX |
+| **Conversation History** | Multi-turn conversations with save/load to JSON |
+| **Error Handling** | Custom exceptions with retry logic |
+| **Free Models** | Support for Llama, Qwen, DeepSeek, and more |
+
+## API Reference
+
+### OpenRouterClient
+
 ```python
-# Initialize with available models for validation
-available_models = [
-    "meta-llama/llama-4-maverick:free",
-    "qwen/qwen-2.5-vl-72b-instruct", 
-    "meta-llama/llama-3.3-70b-instruct",
-    "deepseek/deepseek-r1-distill-llama-70b:free",
-    "meta-llama/llama-3.3-8b-instruct:free",
-    "openai/gpt-oss-20b:free",
-    "qwen/qwen-2.5-72b-instruct:free",
-    "deepseek/deepseek-chat-v3.1:free",
-    "google/gemma-3n-e4b-it:free"
-]
 client = OpenRouterClient(
     model="meta-llama/llama-4-maverick:free",
-    available_models=available_models
+    available_models=["model1", "model2"],  # Optional validation
+    max_retries=3,
+    retry_delay=1.0
 )
-
-# Switch between models dynamically
-client.switch_model("qwen/qwen-2.5-vl-72b-instruct")
-print(f"Current model: {client.get_current_model()}")
-
-# List available models
-print(f"Available: {client.list_available_models()}")
 ```
 
-### Conversation with History
+**Core Methods:**
+- `chat(message, history=None, system_prompt=None, **kwargs)` → Complete response
+- `chat_stream(message, history=None, system_prompt=None, **kwargs)` → Streaming generator
+- `switch_model(new_model)` → Change active model
+- `get_current_model()` → Get current model name
+- `list_available_models()` → Get configured models
+- `add_available_model(model)` → Add model to available list
+- `remove_available_model(model)` → Remove model from list
+
+### ConversationHistory
+
 ```python
 from call_llm import ConversationHistory
 
 history = ConversationHistory()
-response1 = client.chat("What's the capital of France?", history=history)
-response2 = client.chat("What's its population?", history=history)
+history.add_message("user", "Hello")
+history.add_message("assistant", "Hi there!")
+history.save("conversation.json")
+history.load("conversation.json")
 ```
 
-### Advanced Usage
+## Usage Examples
+
+### Model Comparison Testing
+
+```python
+# Test multiple models with same question
+models = [
+    "meta-llama/llama-4-maverick:free",
+    "qwen/qwen-2.5-72b-instruct:free",
+    "deepseek/deepseek-r1-distill-llama-70b:free"
+]
+
+client = OpenRouterClient(model=models[0], available_models=models)
+
+question = "Explain quantum computing in simple terms"
+responses = []
+
+for model in models:
+    client.switch_model(model)
+    response = client.chat(question)
+    responses.append((model, response))
+    print(f"{model}: {response[:100]}...")
+```
+
+### Conversation with History
+
+```python
+from call_llm import ConversationHistory
+
+history = ConversationHistory()
+
+# Multi-turn conversation
+response1 = client.chat("What's the capital of France?", history=history)
+response2 = client.chat("What's its population?", history=history)
+
+# Save conversation
+history.save("france_chat.json")
+
+# Load and continue later
+new_history = ConversationHistory()
+new_history.load("france_chat.json")
+response3 = client.chat("What language do they speak?", history=new_history)
+```
+
+### Advanced Configuration
+
 ```python
 # With system prompt and custom parameters
 response = client.chat(
-    "Write a poem",
-    system_prompt="You are a creative poet",
+    "Write a poem about coding",
+    system_prompt="You are a creative poet who loves technology",
     temperature=0.8,
     max_tokens=200
 )
+
+# Streaming with error handling
+try:
+    for chunk in client.chat_stream("Explain machine learning"):
+        print(chunk, end="", flush=True)
+except RateLimitError:
+    print("Rate limit exceeded, please wait")
+except APIError as e:
+    print(f"API error: {e}")
 ```
 
-### Error Handling
+### Batch Testing Workflow
+
 ```python
+def test_models_on_question(models, question):
+    """Test multiple models on the same question."""
+    results = []
+    
+    for model in models:
+        client.switch_model(model)
+        try:
+            response = client.chat(question)
+            results.append({
+                'model': model,
+                'response': response,
+                'length': len(response.split())
+            })
+        except Exception as e:
+            results.append({
+                'model': model,
+                'error': str(e)
+            })
+    
+    return results
+
+# Usage
+models = ["meta-llama/llama-4-maverick:free", "qwen/qwen-2.5-72b-instruct:free"]
+results = test_models_on_question(models, "How do neural networks work?")
+```
+
+## Error Handling
+
+```python
+from call_llm import OpenRouterError, RateLimitError, APIError
+
 try:
     response = client.chat("Hello")
 except RateLimitError:
@@ -219,13 +173,113 @@ except OpenRouterError as e:
 ```
 
 ## Supported Models
-- **Free Models**: meta-llama/llama-4-maverick:free, meta-llama/llama-3.2-3b-instruct:free
-- **Paid Models**: qwen/qwen-2.5-vl-72b-instruct, meta-llama/llama-3.3-70b-instruct
-- **Any OpenRouter Model**: Fully compatible with all models on OpenRouter.ai
 
-## Next Steps
-1. Set up environment variables
-2. Install dependencies
-3. Test with your preferred models
-4. Integrate into your applications
-5. Customize retry settings if needed
+**Free Models:**
+- `meta-llama/llama-4-maverick:free`
+- `meta-llama/llama-3.2-3b-instruct:free`
+- `qwen/qwen-2.5-72b-instruct:free`
+- `deepseek/deepseek-r1-distill-llama-70b:free`
+- `openai/gpt-oss-20b:free`
+- And more...
+
+**Paid Models:**
+- `qwen/qwen-2.5-vl-72b-instruct`
+- `meta-llama/llama-3.3-70b-instruct`
+- Any OpenRouter.ai model
+
+## Setup
+
+1. **Install dependencies:**
+```bash
+pip install -r requirements.txt
+```
+
+2. **Set API key:**
+```bash
+export OPENROUTER_API_KEY="your-api-key-here"
+```
+
+3. **Copy environment template:**
+```bash
+cp env.example .env
+# Edit .env with your API key
+```
+
+## Model Evaluation System
+
+### Rubric-based Evaluation
+
+The project now includes a comprehensive model evaluation system using LLM-as-judge:
+
+```python
+from model_evaluator import ModelEvaluator, RubricScore, EvalResult
+
+# Initialize evaluator with judge client
+judge_client = OpenRouterClient(model="qwen/qwen-2.5-72b-instruct:free")
+evaluator = ModelEvaluator(judge_client)
+
+# Evaluate a model response
+result = evaluator.evaluate_response("model_name", prompt, response)
+print(f"Overall Score: {result.overall_score:.2f}/5.0")
+print(f"Correctness: {result.rubric.correctness}/5")
+print(f"Judge Rationale: {result.rubric.rationale}")
+```
+
+**Evaluation Criteria:**
+- **Correctness** (weight 4): Factual accuracy, absence of hallucinations
+- **Completeness** (weight 3): Covers all parts of prompt, addresses edge cases
+- **Reasoning** (weight 2): Quality of logical structure and justification
+- **Clarity** (weight 1): Readable, well-organized, concise
+- **Verifiability** (weight 1): Cites sources, provides reproducible steps
+- **Safety Pass** (boolean gate): Must pass or receive -1.0 score
+
+**Key Features:**
+- LLM-as-judge using OpenRouter API with low temperature (0.1) for consistency
+- JSON parsing with retry logic for malformed responses
+- Blind judging (no model names revealed to judge)
+- Weighted scoring system with safety gate
+- Comprehensive rationale from judge
+
+### Integration with test_chat.py
+
+The evaluation system is fully integrated into the model comparison workflow:
+
+```python
+# Automatic evaluation during model testing
+responses = compare_models(client, evaluator, question, models, "Test Title")
+
+# Detailed rubric scores in markdown output
+for model, response in responses:
+    eval_result = evaluator.evaluate_response(model, question, response)
+    # Results include all rubric scores + judge rationale
+```
+
+## Module Structure
+
+```
+call_llm/
+├── call_llm.py              # Main OpenRouter API module
+├── model_evaluator.py       # Rubric-based evaluation system
+├── test_chat.py            # Model comparison with evaluation
+├── requirements.txt        # Dependencies
+├── env.example            # Environment template
+└── README_project_briefing.md
+```
+
+**Classes:**
+- `OpenRouterClient` - Main API client
+- `ConversationHistory` - Chat history management
+- `ModelEvaluator` - Rubric-based model evaluation
+- `RubricScore` - Individual criterion scores
+- `EvalResult` - Complete evaluation results
+- `OpenRouterError` - Base exception
+- `RateLimitError` - Rate limit exceptions
+- `APIError` - General API exceptions
+
+## Real-World Use Cases
+
+- **Model Comparison**: Test different models on the same tasks
+- **Chat Applications**: Build conversational interfaces
+- **Content Generation**: Automated writing and coding assistance
+- **Research**: Batch testing and evaluation workflows
+- **Education**: Interactive learning tools with multiple AI models
